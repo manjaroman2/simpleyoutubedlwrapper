@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>> sampdl</title>
+</head>
+
+<body>
+    <style>
+        * {
+            padding: 8px;
+            font-size: larger;
+            font-family: "Lucida Console", "Courier New", monospace;
+            font-family: sans-serif;
+        }
+
+        input {
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        td {
+            font-size: large;
+        }
+    </style>
+    <form action="/sampdl/main" method="post">
+        <input type="text" name="link" id="link">
+    </form>
+    <table>
+            {% for z in zs %}
+            <tr>
+                <td>
+                    {{ z.time | ctime }}<a href="{{ '/sampdl/dl/%s'%z.file}}">{{ z.file }}</a>
+                </td>
+            </tr>
+            {% endfor %}
+    </table>
+</body>
+
+</html>
