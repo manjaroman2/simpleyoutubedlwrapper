@@ -98,9 +98,8 @@ def main():
                                 "preferredcodec": "wav",
                             }
                         ],
-                        # "paths": {"home": datadir.as_posix()},
                         "outtmpl": {
-                            "default": (tmpdir / "%(title)s.%(ext)s").as_posix()
+                            "default": (tmpdir / "%(title).150B [%(id)s].%(ext)s").as_posix() # https://github.com/yt-dlp/yt-dlp/issues/2329
                         },
                     }
                     with YoutubeDL(ydlopts) as ydl:
