@@ -11,6 +11,8 @@ Change SECRET_KEY in sampdl.py, if you don't want your cookies stolen
 
 ### install 
 
+install ffmpeg for audio extraction 
+
 ```
 pip install -r requirements.txt
 python src/sampdl.py
