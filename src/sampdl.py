@@ -206,10 +206,7 @@ if __name__ == "__main__":
         args = obj["args"]
         funcname = f"flask_{ep}"
         obj["funcname"] = funcname
-        pycode = f"""global {funcname} 
-    args_{ep} = args[:]
-    def {funcname}():
-        return wrapper(url_for({funcname}.__name__), *args_{ep})"""
+        pycode = f"""global {funcname} \nargs_{ep} = args[:] \ndef {funcname}(): \n    return wrapper(url_for({funcname}.__name__), *args_{ep})"""
         exec(pycode)
         app.add_url_rule(f"/s/{ep}", view_func=locals()[funcname], methods=["GET", "POST"])
 
