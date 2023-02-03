@@ -6,6 +6,7 @@ from flask import (
     url_for,
     session,
     send_from_directory,
+    make_response,
 )
 from yt_dlp import YoutubeDL, DownloadError
 from yt_dlp.utils import parse_codecs
@@ -16,6 +17,7 @@ import random
 from time import time, ctime
 import shutil
 from threading import Thread, Lock
+import datetime
 
 
 random.seed(time())
@@ -64,8 +66,8 @@ def timectime(s):
 
 
 def sampdl_post():
-    if "sesh" in session:
-        sesh = session["sesh"]
+    if "sesh" in request.cookies:
+        sesh = request.cookies["sesh"]
         if sesh not in age:
             return
         if "link" in request.form and "codec" in request.form:
@@ -159,24 +161,27 @@ def sampdl():
             sesh = str(uuid4())
             zips[sesh] = list()
             age[sesh] = time()
-            session["sesh"] = sesh
+            # session["sesh"] = sesh
+            return sesh
 
         zs = []
         loading = None
-        if "sesh" in session:
-            sesh = session["sesh"]
+        if "sesh" in request.cookies:
+            sesh = request.cookies["sesh"]
             if sesh in zips:
                 zs = sorted(zips[sesh], key=lambda z: z["time"], reverse=True)
                 zs = [z for z in zs if z["file"] != "_DUMMY"]
             elif sesh not in age:
-                newsesh()
+                sesh = newsesh()
             LOADINGLOCK.acquire()
             if sesh in LOADING:
                 loading = LOADING[sesh]
             LOADINGLOCK.release()
         else:
-            newsesh()
-        return render_template("index.html", zs=zs, loading=loading)
+            sesh = newsesh()
+        response = make_response(render_template("index.html", zs=zs, loading=loading))
+        response.set_cookie("sesh", sesh, max_age=datetime.timedelta(days=30))
+        return response
 
 
 # yt-dlp -x --audio-format wav --audio-quality 0 -o "~/music/sampledl/%(title)s.%(ext)s" --restrict-filenames $1"
