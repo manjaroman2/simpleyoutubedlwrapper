@@ -1,85 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>> sampdl</title>
+    <title>sampdl</title>
 </head>
-
 <body>
     <style>
         * {
-            font-size: large;
-            font-family: "Lucida Console", "Courier New", monospace;
-            font-family: sans-serif;
-            margin: 0;
-        }
-
-        form {
-            width: 100%;
-            display: -webkit-flex;
-            padding: 10px;
-        }
-
-        input#link {
-            flex: auto;
-            -webkit-flex: 2;
-        }
-
-        input#zip {
-            margin-right: 1vw;
-
-        }
-
-        form>p {
-            margin-right: 4vw;
-        }
-
-        form>select {
-            margin-left: 2vw;
-            margin-right: 2vw;
-        }
-
-        table,
-        table * a {
-            padding: 10px;
-        }
-
-        td {
-            font-size: large;
+            padding: 10vw;
         }
     </style>
-    <div id="vbar">
-        <form action="/sampdl" method="post">
-            <input type="text" name="link" id="link">
-            <select name="codec" id="codec">
-                <option value="flac">flac</option>
-                <option value="wav">wav</option>
-                <option value="mp3">mp3</option>
-            </select>
-            <input type="checkbox" name="zip" id="zip" value="true">
-            <p>zip</p>
-        </form>
-    </div>
-    <table>
-        {% if loading is not none %}
-        <tr>
-            <td>
-                <p>{{ loading }} %</p>
-            </td>
-
-        </tr>
-        {% endif %}
-        {% for z in zs %}
-        <tr>
-            <td>
-                {{ z.time | ctime }}<a href="{{ '/sampdl/dl/%s'%z.file}}">{{ z.name }}</a>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
+    {% for e in endpoints %}
+    <a href="{{e}}">{{e}}</a>
+    {% endfor %}
 </body>
-
 </html>

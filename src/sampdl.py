@@ -4,7 +4,6 @@ from flask import (
     request,
     redirect,
     url_for,
-    session,
     send_from_directory,
     make_response,
 )
@@ -16,7 +15,8 @@ from uuid import uuid4
 import random
 from time import time, ctime
 import shutil
-from threading import Thread, Lock
+from threading import Thread
+from queue import Queue
 import datetime
 
 
@@ -37,20 +37,16 @@ datadir.mkdir()
 print("> datadir:", datadir)
 zips = dict()
 LOADING = dict()
-LOADINGLOCK = Lock()
 age = dict()
 WORKERS = {}
-
-
-@app.route("/")
-def hello_world():
-    return redirect(url_for("sampdl"))
+AUDIOCODECS = ["flac", "wav", "mp3"]
+VIDEOCODECS = ["mp4"]
 
 
 @app.route("/sampdl/dl/<string:file>")
 def download(file):
-    if "sesh" in session:
-        sesh = session["sesh"]
+    if "sesh" in request.cookies:
+        sesh = request.cookies["sesh"]
         if sesh in zips:
             for z in zips[sesh]:
                 if z["file"] == file:
@@ -65,7 +61,52 @@ def timectime(s):
     return ctime(s)  # datetime.datetime.fromtimestamp(s)
 
 
-def sampdl_post():
+def worker(sesh, urls, ydlopts, tmpdir, aszip):
+    global LOADING
+    q: Queue = LOADING[sesh]
+    progress = 0
+    q.put(progress)
+    add = 1 / len(urls) * 100
+    with YoutubeDL(ydlopts) as ydl:
+        for url in urls:
+            try:
+                ydl.download([url])
+                progress += add
+                q.put(progress)
+            except DownloadError as e:
+                print(e)
+
+    del LOADING[sesh]
+    tmpfiles = list(tmpdir.glob("./*"))
+    files = []
+    skip = False
+    if not aszip:
+        if len(tmpfiles) < 10:
+            for tmpfile in tmpfiles:
+                fileuuid = str(uuid4())
+                shutil.copyfile(tmpfile, datadir / fileuuid)
+                files.append(
+                    {
+                        "file": fileuuid,
+                        "time": time(),
+                        "name": tmpfile.name.replace("_", " "),
+                    }
+                )
+            skip = True
+    if not skip:
+        shutil.make_archive(datadir / sesh, "zip", tmpdir)
+        files.append(
+            {
+                "file": sesh + ".zip",
+                "time": time(),
+                "name": f"{len(tmpfiles)}.zip",
+            }
+        )
+    shutil.rmtree(tmpdir)
+    zips[sesh].extend(files)
+
+
+def sampdl_post(valid_codecs, extractaudio=False):
     if "sesh" in request.cookies:
         sesh = request.cookies["sesh"]
         if sesh not in age:
@@ -73,8 +114,8 @@ def sampdl_post():
         if "link" in request.form and "codec" in request.form:
             aszip = "zip" in request.form
             codec = request.form["codec"]
-            if not (codec := parse_codecs(codec)["acodec"]):
-                codec = "flac"
+            if codec not in valid_codecs:
+                codec = valid_codecs[0]
             urls = urlregex.findall(request.form["link"])
             if urls:
                 uuid = str(uuid4())
@@ -85,12 +126,6 @@ def sampdl_post():
                     "restrictfilenames": True,
                     "format": f"{codec}/bestaudio/best",
                     # ℹ️ See help(yt_dlp.postprocessor) for a list of available Postprocessors and their arguments
-                    "postprocessors": [
-                        {  # Extract audio using ffmpeg
-                            "key": "FFmpegExtractAudio",
-                            "preferredcodec": codec,
-                        }
-                    ],
                     "outtmpl": {
                         # "default": (tmpdir / "%(title).150B [%(id)s].%(ext)s").as_posix() # https://github.com/yt-dlp/yt-dlp/issues/2329
                         "default": (
@@ -98,70 +133,31 @@ def sampdl_post():
                         ).as_posix()  # https://github.com/yt-dlp/yt-dlp/issues/2329
                     },
                 }
-
-                def worker():
-                    LOADINGLOCK.acquire()
-                    LOADING[sesh] = 0
-                    LOADINGLOCK.release()
-                    add = 1 / len(urls) * 100
-                    with YoutubeDL(ydlopts) as ydl:
-                        for url in urls:
-                            try:
-                                ydl.download([url])
-                                LOADINGLOCK.acquire()
-                                LOADING[sesh] += add
-                                LOADINGLOCK.release()
-                            except DownloadError as e:
-                                print(e)
-
-                    LOADINGLOCK.acquire()
-                    del LOADING[sesh]
-                    LOADINGLOCK.release()
-                    tmpfiles = list(tmpdir.glob("./*"))
-                    files = []
-                    skip = False
-                    if not aszip:
-                        if len(tmpfiles) < 10:
-                            for tmpfile in tmpfiles:
-                                fileuuid = str(uuid4())
-                                shutil.copyfile(tmpfile, datadir / fileuuid)
-                                files.append(
-                                    {
-                                        "file": fileuuid,
-                                        "time": time(),
-                                        "name": tmpfile.name,
-                                    }
-                                )
-                            skip = True
-                    if not skip:
-                        shutil.make_archive(datadir / uuid, "zip", tmpdir)
-                        files.append(
-                            {
-                                "file": uuid + ".zip",
-                                "time": time(),
-                                "name": f"{len(tmpfiles)}_zipbomb.zip",
-                            }
-                        )
-                    shutil.rmtree(tmpdir)
-                    zips[sesh].extend(files)
-
-                thread = Thread(target=worker)
+                if extractaudio:
+                    ydlopts["postprocessors"] = [
+                        {  # Extract audio using ffmpeg
+                            "key": "FFmpegExtractAudio",
+                            "preferredcodec": codec,
+                        }
+                    ]
+                args = (sesh, urls, ydlopts, tmpdir, aszip)
+                thread = Thread(target=worker, args=args)
                 thread.start()
-                WORKERS[uuid] = thread
+                LOADING[sesh] = Queue()
+                WORKERS[sesh] = thread
 
 
-@app.route("/sampdl", methods=["GET", "POST"])
-def sampdl():
+def function(posturl, codecs, extractaudio=False):
+    print(codecs)
     if request.method == "POST":
-        r = sampdl_post()
-        return redirect(url_for("sampdl"))
+        sampdl_post(codecs, extractaudio)
+        return redirect(posturl)
     if request.method == "GET":
 
         def newsesh():
             sesh = str(uuid4())
             zips[sesh] = list()
             age[sesh] = time()
-            # session["sesh"] = sesh
             return sesh
 
         zs = []
@@ -170,18 +166,50 @@ def sampdl():
             sesh = request.cookies["sesh"]
             if sesh in zips:
                 zs = sorted(zips[sesh], key=lambda z: z["time"], reverse=True)
-                zs = [z for z in zs if z["file"] != "_DUMMY"]
             elif sesh not in age:
                 sesh = newsesh()
-            LOADINGLOCK.acquire()
+            global LOADING
             if sesh in LOADING:
-                loading = LOADING[sesh]
-            LOADINGLOCK.release()
+                q: Queue = LOADING[sesh]
+                loading = q.get()
         else:
             sesh = newsesh()
-        response = make_response(render_template("index.html", zs=zs, loading=loading))
+        response = make_response(
+            render_template(
+                "video.html",
+                zs=zs,
+                loading=loading,
+                codecs=codecs,
+                form_action=posturl,
+            )
+        )
         response.set_cookie("sesh", sesh, max_age=datetime.timedelta(days=30))
         return response
+
+
+ENDPOINTS = {
+    "audio": [AUDIOCODECS], 
+    "video": [VIDEOCODECS]}
+
+# im gonna meet the devil for this 
+# unforgivable sins were commited
+for ep, args in ENDPOINTS.items():
+    funcname = f"flask_{ep}"
+    pycode = f"""global {funcname} 
+args_{ep} = args[:]
+def {funcname}():
+    return function(url_for({funcname}.__name__), *args_{ep})"""
+    exec(pycode)
+    app.add_url_rule(f"/s/{ep}", view_func=locals()[funcname])
+
+print(app.url_map)
+
+# @app.route("/")
+# @app.route("/sampdl", methods=["GET", "POST"])
+# def s():
+#     return render_template(
+#         "index.html", endpoints=[url_for(ep.__name__) for ep in ENDPOINTS]
+#     )
 
 
 # yt-dlp -x --audio-format wav --audio-quality 0 -o "~/music/sampledl/%(title)s.%(ext)s" --restrict-filenames $1"
