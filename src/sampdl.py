@@ -7,13 +7,16 @@ from flask import (
     session,
     send_from_directory,
 )
-from yt_dlp import YoutubeDL
+from yt_dlp import YoutubeDL, DownloadError
+from yt_dlp.utils import parse_codecs
 import re
 from pathlib import Path
 from uuid import uuid4
 import random
 from time import time, ctime
 import shutil
+from threading import Thread, Lock
+
 
 random.seed(time())
 
@@ -31,7 +34,10 @@ if datadir.is_dir():
 datadir.mkdir()
 print("> datadir:", datadir)
 zips = dict()
+LOADING = dict()
+LOADINGLOCK = Lock()
 age = dict()
+WORKERS = {}
 
 
 @app.route("/")
@@ -46,7 +52,9 @@ def download(file):
         if sesh in zips:
             for z in zips[sesh]:
                 if z["file"] == file:
-                    return send_from_directory(datadir, z["file"])
+                    return send_from_directory(
+                        datadir, z["file"], as_attachment=True, download_name=z["name"]
+                    )
     return redirect(url_for("sampdl"))
 
 
@@ -55,62 +63,122 @@ def timectime(s):
     return ctime(s)  # datetime.datetime.fromtimestamp(s)
 
 
-@app.route("/sampdl")
-def sampdl():
-    def newsesh():
-        sesh = str(uuid4())
-        zips[sesh] = list()
-        age[sesh] = time()
-        session["sesh"] = sesh
-
-    zs = []
+def sampdl_post():
     if "sesh" in session:
         sesh = session["sesh"]
-        if sesh in zips:
-            zs = sorted(zips[sesh], key=lambda z: z["time"], reverse=True)
-        elif sesh not in age:
-            newsesh()
-    else:
-        newsesh()
-    return render_template("index.html", zs=zs)
+        if sesh not in age:
+            return
+        if "link" in request.form and "codec" in request.form:
+            aszip = "zip" in request.form
+            codec = request.form["codec"]
+            if not (codec := parse_codecs(codec)["acodec"]):
+                codec = "flac"
+            urls = urlregex.findall(request.form["link"])
+            if urls:
+                uuid = str(uuid4())
+                tmpdir = datadir / uuid
+                tmpdir.mkdir()
+                ydlopts = {
+                    "concurrent-fragments": 4,
+                    "restrictfilenames": True,
+                    "format": f"{codec}/bestaudio/best",
+                    # ℹ️ See help(yt_dlp.postprocessor) for a list of available Postprocessors and their arguments
+                    "postprocessors": [
+                        {  # Extract audio using ffmpeg
+                            "key": "FFmpegExtractAudio",
+                            "preferredcodec": codec,
+                        }
+                    ],
+                    "outtmpl": {
+                        # "default": (tmpdir / "%(title).150B [%(id)s].%(ext)s").as_posix() # https://github.com/yt-dlp/yt-dlp/issues/2329
+                        "default": (
+                            tmpdir / "%(title).150B.%(ext)s"
+                        ).as_posix()  # https://github.com/yt-dlp/yt-dlp/issues/2329
+                    },
+                }
+
+                def worker():
+                    LOADINGLOCK.acquire()
+                    LOADING[sesh] = 0
+                    LOADINGLOCK.release()
+                    add = 1 / len(urls) * 100
+                    with YoutubeDL(ydlopts) as ydl:
+                        for url in urls:
+                            try:
+                                ydl.download([url])
+                                LOADINGLOCK.acquire()
+                                LOADING[sesh] += add
+                                LOADINGLOCK.release()
+                            except DownloadError as e:
+                                print(e)
+
+                    LOADINGLOCK.acquire()
+                    del LOADING[sesh]
+                    LOADINGLOCK.release()
+                    tmpfiles = list(tmpdir.glob("./*"))
+                    files = []
+                    skip = False
+                    if not aszip:
+                        if len(tmpfiles) < 10:
+                            for tmpfile in tmpfiles:
+                                fileuuid = str(uuid4())
+                                shutil.copyfile(tmpfile, datadir / fileuuid)
+                                files.append(
+                                    {
+                                        "file": fileuuid,
+                                        "time": time(),
+                                        "name": tmpfile.name,
+                                    }
+                                )
+                            skip = True
+                    if not skip:
+                        shutil.make_archive(datadir / uuid, "zip", tmpdir)
+                        files.append(
+                            {
+                                "file": uuid + ".zip",
+                                "time": time(),
+                                "name": f"{len(tmpfiles)}_zipbomb.zip",
+                            }
+                        )
+                    shutil.rmtree(tmpdir)
+                    zips[sesh].extend(files)
+
+                thread = Thread(target=worker)
+                thread.start()
+                WORKERS[uuid] = thread
 
 
-@app.route("/sampdl/main", methods=["POST"])
-def main():
+@app.route("/sampdl", methods=["GET", "POST"])
+def sampdl():
     if request.method == "POST":
+        r = sampdl_post()
+        return redirect(url_for("sampdl"))
+    if request.method == "GET":
+
+        def newsesh():
+            sesh = str(uuid4())
+            zips[sesh] = list()
+            age[sesh] = time()
+            session["sesh"] = sesh
+
+        zs = []
+        loading = None
         if "sesh" in session:
             sesh = session["sesh"]
-            if sesh not in age:
-                return redirect(url_for("sampdl"))
-            if "link" in request.form:
-                urls = urlregex.findall(request.form["link"])
-                if urls:
-                    uuid = str(uuid4())
-                    tmpdir = datadir / uuid
-                    tmpdir.mkdir()
-                    ydlopts = {
-                        "restrictfilenames": True,
-                        "format": "m4a/bestaudio/best",
-                        # ℹ️ See help(yt_dlp.postprocessor) for a list of available Postprocessors and their arguments
-                        "postprocessors": [
-                            {  # Extract audio using ffmpeg
-                                "key": "FFmpegExtractAudio",
-                                "preferredcodec": "wav",
-                            }
-                        ],
-                        "outtmpl": {
-                            "default": (tmpdir / "%(title).150B [%(id)s].%(ext)s").as_posix() # https://github.com/yt-dlp/yt-dlp/issues/2329
-                        },
-                    }
-                    with YoutubeDL(ydlopts) as ydl:
-                        ydl.download(urls)
-                    shutil.make_archive(datadir / uuid, "zip", tmpdir)
-                    shutil.rmtree(tmpdir)
-                    zips[sesh].append({"file": uuid + ".zip", "time": time()})
-                    return redirect(url_for("sampdl"))
-    return redirect(url_for("sampdl"))
+            if sesh in zips:
+                zs = sorted(zips[sesh], key=lambda z: z["time"], reverse=True)
+                zs = [z for z in zs if z["file"] != "_DUMMY"]
+            elif sesh not in age:
+                newsesh()
+            LOADINGLOCK.acquire()
+            if sesh in LOADING:
+                loading = LOADING[sesh]
+            LOADINGLOCK.release()
+        else:
+            newsesh()
+        return render_template("index.html", zs=zs, loading=loading)
 
 
 # yt-dlp -x --audio-format wav --audio-quality 0 -o "~/music/sampledl/%(title)s.%(ext)s" --restrict-filenames $1"
 # print(help(postprocessor))
-app.run(host="0.0.0.0", debug=True)
+app.run(host="0.0.0.0", debug=False)

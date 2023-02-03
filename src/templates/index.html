@@ -11,32 +11,74 @@
 <body>
     <style>
         * {
-            padding: 8px;
-            font-size: larger;
+            font-size: large;
             font-family: "Lucida Console", "Courier New", monospace;
             font-family: sans-serif;
+            margin: 0;
         }
 
-        input {
+        form {
             width: 100%;
-            box-sizing: border-box;
+            display: -webkit-flex;
+            padding: 10px;
+        }
+
+        input#link {
+            flex: auto;
+            -webkit-flex: 2;
+        }
+
+        input#zip {
+            margin-right: 1vw;
+
+        }
+
+        form>p {
+            margin-right: 4vw;
+        }
+
+        form>select {
+            margin-left: 2vw;
+            margin-right: 2vw;
+        }
+
+        table,
+        table * a {
+            padding: 10px;
         }
 
         td {
             font-size: large;
         }
     </style>
-    <form action="/sampdl/main" method="post">
-        <input type="text" name="link" id="link">
-    </form>
+    <div id="vbar">
+        <form action="/sampdl" method="post">
+            <input type="text" name="link" id="link">
+            <select name="codec" id="codec">
+                <option value="flac">flac</option>
+                <option value="wav">wav</option>
+                <option value="mp3">mp3</option>
+            </select>
+            <input type="checkbox" name="zip" id="zip" value="true">
+            <p>zip</p>
+        </form>
+    </div>
     <table>
-            {% for z in zs %}
-            <tr>
-                <td>
-                    {{ z.time | ctime }}<a href="{{ '/sampdl/dl/%s'%z.file}}">{{ z.file }}</a>
-                </td>
-            </tr>
-            {% endfor %}
+        {% if loading is not none %}
+        <tr>
+            <td>
+                <p>{{ loading }} %</p>
+            </td>
+
+        </tr>
+        {% endif %}
+        {% for z in zs %}
+        <tr>
+            <td>
+                {{ z.time | ctime }}<a href="{{ '/sampdl/dl/%s'%z.file}}">{{ z.name }}</a>
+            </td>
+        </tr>
+        {% endfor %}
     </table>
 </body>
 
