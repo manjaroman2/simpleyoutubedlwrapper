@@ -108,6 +108,7 @@ def worker(sesh, urls, ydlopts, tmpdir, aszip):
     shutil.rmtree(tmpdir)
     FILES[sesh].extend(files)
 
+
 def wrapper(posturl, codecs, extractaudio=False):
     global FILES, AGE, LOADING
     if request.method == "POST":
@@ -176,8 +177,10 @@ def wrapper(posturl, codecs, extractaudio=False):
             if sesh in AGE:
                 sesh_creation_date = AGE[sesh]
                 if (datetime.datetime.now() - sesh_creation_date) < MAX_SESSION_AGE:
-                    if sesh in FILES: 
-                        files_sorted = sorted(FILES[sesh], key=lambda z: z["time"], reverse=True)  
+                    if sesh in FILES:
+                        files_sorted = sorted(
+                            FILES[sesh], key=lambda z: z["time"], reverse=True
+                        )
                     if sesh in LOADING:
                         q: Queue = LOADING[sesh]
                         if not q.empty():
