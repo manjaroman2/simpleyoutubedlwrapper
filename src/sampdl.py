@@ -180,8 +180,9 @@ def wrapper(posturl, codecs, extractaudio=False):
                             form_action=posturl,
                         )
                     )
+            if not response:
+                killsesh(sesh)
         if not response:
-            killsesh(sesh)
             sesh = newsesh()
             response = make_response(
                 render_template(
@@ -218,4 +219,4 @@ if __name__ == "__main__":
             endpoints=[{"link": url_for(obj["funcname"]), "name": ep} for ep, obj in endpoints.items()],
         )
 
-    app.run(host="0.0.0.0", debug=False)
+    app.run(host="0.0.0.0", debug=DEBUG)
