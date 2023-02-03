@@ -10,11 +10,15 @@
     <style>
         * {
             padding: 10vw;
-            font-size: large;
+            font-size: xx-large;
+            font-family: "Lucida Console", "Courier New", monospace;
+            font-family: sans-serif;
         }
     </style>
     {% for e in endpoints %}
-    <a href="{{e}}">{{e}}</a>
+    <a href="{{'%s'%e.link}}">{{e.name}}</a>
     {% endfor %}
+    <div>
+    </div>
 </body>
 </html>

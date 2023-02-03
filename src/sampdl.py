@@ -218,7 +218,7 @@ def {funcname}():
 def s():
     return render_template(
         "index.html",
-        endpoints=[url_for(obj["funcname"]) for ep, obj in ENDPOINTS.items()],
+        endpoints=[{"link": url_for(obj["funcname"]), "name": ep} for ep, obj in ENDPOINTS.items()],
     )
 
 app.run(host="0.0.0.0", debug=False)
