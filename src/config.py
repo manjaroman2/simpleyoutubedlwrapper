@@ -6,4 +6,4 @@ AUDIOCODECS = ["flac", "wav", "mp3"]
 VIDEOCODECS = ["mp4"]
 MAX_SESSION_AGE = datetime.timedelta(days=30)
 DATADIR = Path().cwd() / "data"
-DEBUG=True
+DEBUG = False
