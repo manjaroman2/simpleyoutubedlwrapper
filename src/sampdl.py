@@ -35,20 +35,23 @@ if datadir.is_dir():
     shutil.rmtree(datadir)
 datadir.mkdir()
 print("> datadir:", datadir)
-zips = dict()
+FILES = dict()
 LOADING = dict()
-age = dict()
+AGE = dict()
 WORKERS = {}
 AUDIOCODECS = ["flac", "wav", "mp3"]
 VIDEOCODECS = ["mp4"]
+
+MAX_SESSION_AGE = datetime.timedelta(days=30)
 
 
 @app.route("/sampdl/dl/<string:file>")
 def download(file):
     if "sesh" in request.cookies:
         sesh = request.cookies["sesh"]
-        if sesh in zips:
-            for z in zips[sesh]:
+        global FILES
+        if sesh in FILES:
+            for z in FILES[sesh]:
                 if z["file"] == file:
                     return send_from_directory(
                         datadir, z["file"], as_attachment=True, download_name=z["name"]
@@ -62,7 +65,7 @@ def timectime(s):
 
 
 def worker(sesh, urls, ydlopts, tmpdir, aszip):
-    global LOADING
+    global LOADING, FILES
     q: Queue = LOADING[sesh]
     progress = 0
     q.put(progress)
@@ -103,19 +106,20 @@ def worker(sesh, urls, ydlopts, tmpdir, aszip):
             }
         )
     shutil.rmtree(tmpdir)
-    zips[sesh].extend(files)
+    FILES[sesh].extend(files)
 
-
-def sampdl_post(valid_codecs, extractaudio=False):
-    if "sesh" in request.cookies:
-        sesh = request.cookies["sesh"]
-        if sesh not in age:
-            return
-        if "link" in request.form and "codec" in request.form:
-            aszip = "zip" in request.form
-            codec = request.form["codec"]
-            if codec not in valid_codecs:
-                codec = valid_codecs[0]
+def wrapper(posturl, codecs, extractaudio=False):
+    global FILES, AGE, LOADING
+    if request.method == "POST":
+        if "sesh" in request.cookies:
+            sesh = request.cookies["sesh"]
+            if sesh not in AGE:
+                return
+            if "link" in request.form and "codec" in request.form:
+                aszip = "zip" in request.form
+                codec = request.form["codec"]
+            if codec not in codecs:
+                codec = codecs[0]
             urls = urlregex.findall(request.form["link"])
             if urls:
                 uuid = str(uuid4())
@@ -142,74 +146,92 @@ def sampdl_post(valid_codecs, extractaudio=False):
                     ]
                 args = (sesh, urls, ydlopts, tmpdir, aszip)
                 thread = Thread(target=worker, args=args)
-                thread.start()
                 LOADING[sesh] = Queue()
                 WORKERS[sesh] = thread
-
-
-def function(posturl, codecs, extractaudio=False):
-    print(codecs)
-    if request.method == "POST":
-        sampdl_post(codecs, extractaudio)
+                thread.start()
         return redirect(posturl)
     if request.method == "GET":
 
         def newsesh():
             sesh = str(uuid4())
-            zips[sesh] = list()
-            age[sesh] = time()
+            FILES[sesh] = list()
+            AGE[sesh] = datetime.datetime.now()
             return sesh
 
-        zs = []
+        def killsesh(sesh):
+            print("Deleting sesh", sesh)
+            if sesh in AGE:
+                del AGE[sesh]
+            if sesh in FILES:
+                for f in FILES[sesh]:
+                    (datadir / f["file"]).unlink()
+                del FILES[sesh]
+
+        files_sorted = []
         loading = None
+        response = None
         if "sesh" in request.cookies:
             sesh = request.cookies["sesh"]
-            if sesh in zips:
-                zs = sorted(zips[sesh], key=lambda z: z["time"], reverse=True)
-            elif sesh not in age:
-                sesh = newsesh()
-            global LOADING
-            if sesh in LOADING:
-                q: Queue = LOADING[sesh]
-                loading = q.get()
-        else:
+            print(request.cookies)
+            if sesh in AGE:
+                sesh_creation_date = AGE[sesh]
+                if (datetime.datetime.now() - sesh_creation_date) < MAX_SESSION_AGE:
+                    if sesh in FILES: 
+                        files_sorted = sorted(FILES[sesh], key=lambda z: z["time"], reverse=True)  
+                    if sesh in LOADING:
+                        q: Queue = LOADING[sesh]
+                        if not q.empty():
+                            loading = LOADING[sesh].get()
+                    response = make_response(
+                        render_template(
+                            "video.html",
+                            zs=files_sorted,
+                            loading=loading,
+                            codecs=codecs,
+                            form_action=posturl,
+                        )
+                    )
+        if not response:
+            killsesh(sesh)
             sesh = newsesh()
-        response = make_response(
-            render_template(
-                "video.html",
-                zs=zs,
-                loading=loading,
-                codecs=codecs,
-                form_action=posturl,
+            response = make_response(
+                render_template(
+                    "video.html",
+                    zs=files_sorted,
+                    loading=loading,
+                    codecs=codecs,
+                    form_action=posturl,
+                )
             )
-        )
-        response.set_cookie("sesh", sesh, max_age=datetime.timedelta(days=30))
+            response.set_cookie("sesh", sesh, max_age=MAX_SESSION_AGE)
         return response
 
 
-ENDPOINTS = {
-    "audio": [AUDIOCODECS], 
-    "video": [VIDEOCODECS]}
+ENDPOINTS = {"audio": {"args": [AUDIOCODECS, True]}, "video": {"args": [VIDEOCODECS]}}
 
-# im gonna meet the devil for this 
+# im gonna meet the devil for this
 # unforgivable sins were commited
-for ep, args in ENDPOINTS.items():
+for ep, obj in ENDPOINTS.items():
+    args = obj["args"]
     funcname = f"flask_{ep}"
+    obj["funcname"] = funcname
     pycode = f"""global {funcname} 
 args_{ep} = args[:]
 def {funcname}():
-    return function(url_for({funcname}.__name__), *args_{ep})"""
+    return wrapper(url_for({funcname}.__name__), *args_{ep})"""
     exec(pycode)
-    app.add_url_rule(f"/s/{ep}", view_func=locals()[funcname])
+    app.add_url_rule(f"/s/{ep}", view_func=locals()[funcname], methods=["GET", "POST"])
 
 print(app.url_map)
 
-# @app.route("/")
-# @app.route("/sampdl", methods=["GET", "POST"])
-# def s():
-#     return render_template(
-#         "index.html", endpoints=[url_for(ep.__name__) for ep in ENDPOINTS]
-#     )
+
+@app.route("/")
+@app.route("/s", methods=["GET"])
+def s():
+    return render_template(
+        "index.html",
+        endpoints=[url_for(obj["funcname"]) for ep, obj in ENDPOINTS.items()],
+    )
 
 
 # yt-dlp -x --audio-format wav --audio-quality 0 -o "~/music/sampledl/%(title)s.%(ext)s" --restrict-filenames $1"
