@@ -17,7 +17,7 @@ install ffmpeg for audio extraction
 
 ```
 pip install -r requirements.txt
-python src/sampdl.py
+gunicorn sampdl:app
 ```
 
 ### notes
