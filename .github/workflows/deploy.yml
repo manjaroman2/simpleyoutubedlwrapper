@@ -1,0 +1,34 @@
+name: deploy-to-digitalocean
+run-name: ${{ github.actor }} is deploying to digitalocean
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10' 
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # python src/sampdl.py
+      # - name: Lint with flake8
+      #   run: 
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: DigitalOcean App Platform deployment
+        # You may pin to the exact commit or the version.
+        # uses: digitalocean/app_action@16c153041a30666f3c2b238231979ce17d2d30e8
+        uses: digitalocean/app_action@v1.1.4
+        with:
+          # Name of the app. (The name of the app must be unique across all apps in the same account.)
+          app_name: simpleytdlpwrapper
+          # DigitalOcean Personal Access Token.(use https://docs.digitalocean.com/reference/api/create-personal-access-token/ for creating new token)
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          # (OPTIONAL)a json array of objects with the properties name (description), repository (repo url), tag (image tag)
+          # images: # optional, default is 
