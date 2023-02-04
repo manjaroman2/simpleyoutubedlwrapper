@@ -118,7 +118,7 @@ def wrapper(posturl, codecs, extractaudio=False):
                 tmpdir.mkdir()
                 ydlopts = {
                     "concurrent-fragments": 4,
-                    "restrictfilenames": True,
+                    "restrictfilenames": RESTRICT_FILENAMES,
                     "format": f"{codec}/bestaudio/best",
                     # ℹ️ See help(yt_dlp.postprocessor) for a list of available Postprocessors and their arguments
                     "outtmpl": {
