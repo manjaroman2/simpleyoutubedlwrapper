@@ -199,34 +199,33 @@ def wrapper(posturl, codecs, extractaudio=False):
         return response
 
 
-if __name__ == "__main__":
-    endpoints = {
-        "audio": {"args": [AUDIOCODECS, True]},
-        "video": {"args": [VIDEOCODECS]},
-    }
+endpoints = {
+    "audio": {"args": [AUDIOCODECS, True]},
+    "video": {"args": [VIDEOCODECS]},
+}
 
-    # im gonna meet the devil for this
-    # unforgivable sins were commited
-    # im not seeing the pearl white gates of heaven
-    for ep, obj in endpoints.items():
-        args = obj["args"]
-        funcname = f"flask_{ep}"
-        obj["funcname"] = funcname
-        pycode = f"""global {funcname} \nargs_{ep} = args[:] \ndef {funcname}(): \n    return wrapper(url_for({funcname}.__name__), *args_{ep})"""
-        exec(pycode)
-        app.add_url_rule(
-            f"/s/{ep}", view_func=locals()[funcname], methods=["GET", "POST"]
-        )
+# im gonna meet the devil for this
+# unforgivable sins were commited
+# im not seeing the pearl white gates of heaven
+for ep, obj in endpoints.items():
+    args = obj["args"]
+    funcname = f"flask_{ep}"
+    obj["funcname"] = funcname
+    pycode = f"""global {funcname} \nargs_{ep} = args[:] \ndef {funcname}(): \n    return wrapper(url_for({funcname}.__name__), *args_{ep})"""
+    exec(pycode)
+    app.add_url_rule(
+        f"/s/{ep}", view_func=locals()[funcname], methods=["GET", "POST"]
+    )
 
-    @app.route("/")
-    @app.route("/s", methods=["GET"])
-    def s():
-        return render_template(
-            "index.html",
-            endpoints=[
-                {"link": url_for(obj["funcname"]), "name": ep}
-                for ep, obj in endpoints.items()
-            ],
-        )
+@app.route("/")
+@app.route("/s", methods=["GET"])
+def s():
+    return render_template(
+        "index.html",
+        endpoints=[
+            {"link": url_for(obj["funcname"]), "name": ep}
+            for ep, obj in endpoints.items()
+        ],
+    )
 
-    app.run(host="0.0.0.0", debug=DEBUG)
+# app.run(host="0.0.0.0", debug=DEBUG)
