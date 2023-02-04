@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>> sampdl</title>
+    <title>{{ endpoint }}</title>
 </head>
 
 <body>
@@ -15,6 +15,15 @@
             font-family: "Lucida Console", "Courier New", monospace;
             font-family: sans-serif;
             margin: 0;
+        }
+
+        div#vbar {
+            width: 100%;
+            display: -webkit-flex;
+            padding: 3px;
+        }
+        div#vbar > * {
+            padding-left: 10vw;
         }
 
         form {
@@ -51,10 +60,16 @@
             font-size: large;
         }
     </style>
-    <a href="https://github.com/manjaroman2/simpleyoutubedlwrapper.git">this project is on github</a>
     <div id="vbar">
+        <a href="https://github.com/manjaroman2/simpleyoutubedlwrapper.git">this project is on github</a>
+        {% for ep in links %}
+        <a href="{{ep}}">{{ep}}</a>
+        {% endfor %}
+    </div>
+    <div>
         <form action="{{form_action}}" method="post">
-            <input type="text" name="link" id="link" placeholder="Your link to a yt video, yt playlist, tweet,...(https://www.youtube.com/watch?v=dQw4w9WgXcQ)">
+            <input type="text" name="link" id="link"
+                placeholder="Your link to a yt video, yt playlist, tweet,...(https://www.youtube.com/watch?v=dQw4w9WgXcQ)">
             <select name="codec" id="codec">
                 {% for c in codecs %}
                 <option value="{{c}}">{{ c }}</option>
@@ -76,7 +91,7 @@
         {% for z in zs %}
         <tr>
             <td>
-                {{ z.time | ctime }}<a href="{{'/sampdl/dl/%s'%z.file}}">{{ z.name }}</a>
+                {{ z.time | ctime }}<a href="{{z.href}}">{{ z.name }}</a>
             </td>
         </tr>
         {% endfor %}
