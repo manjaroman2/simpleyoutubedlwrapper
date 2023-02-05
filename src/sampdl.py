@@ -10,7 +10,6 @@ from flask import (
     abort,
 )
 import gunicorn.app.base
-import ffmpeg
 from yt_dlp import YoutubeDL, DownloadError
 import re
 from uuid import uuid4
