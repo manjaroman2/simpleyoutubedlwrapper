@@ -48,7 +48,7 @@ if not shutil.which("ffmpeg"):
     from importlib import reload
     reload(site)
 
-
+print(os.environ['PATH'])
 print("> ffmpeg binary:", shutil.which("ffmpeg"))
 random.seed(time.time())
 app = Flask(__name__)
