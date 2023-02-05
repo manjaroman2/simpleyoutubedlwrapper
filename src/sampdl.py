@@ -10,6 +10,7 @@ from flask import (
     abort,
 )
 import gunicorn.app.base
+import ffmpeg
 from yt_dlp import YoutubeDL, DownloadError
 import re
 from uuid import uuid4
@@ -21,10 +22,24 @@ import shutil
 from threading import Thread, current_thread
 from typing import Dict, List
 import os
-
+import requests
+import tarfile
 from config import *
 
-print("This is called once")
+
+if not shutil.which("ffmpeg") or True:
+    ffmpegurl = "https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-amd64-static.tar.xz"
+    if not Path("ffmpeg.tar.xz").is_file():
+        print(f"Downloading ffmpeg from {ffmpegurl}")
+        open("ffmpeg.tar.xz", "wb").write(requests.get(ffmpegurl).content)
+    print("extracting ffmpeg")
+    with tarfile.open("ffmpeg.tar.xz") as f:
+        for m in f.getmembers():
+            if Path(m.name).name == "ffmpeg":
+                (Path().cwd() / "ffmpeg").write_bytes(f.extractfile(m).read())
+                break
+
+print(shutil.which("ffmpeg"))
 random.seed(time.time())
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
