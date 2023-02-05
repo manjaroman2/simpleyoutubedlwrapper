@@ -27,7 +27,7 @@ import tarfile
 from config import *
 
 
-if not shutil.which("ffmpeg") or True:
+if not shutil.which("ffmpeg"):
     ffmpegurl = "https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-amd64-static.tar.xz"
     tar = Path("ffmpeg.tar.xz")
     if not tar.is_file():
