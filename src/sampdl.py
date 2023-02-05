@@ -40,7 +40,7 @@ if not shutil.which("ffmpeg"):
                 break
     tar.unlink()
 
-print(shutil.which("ffmpeg"))
+print("> ffmpeg binary:", shutil.which("ffmpeg"))
 random.seed(time.time())
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
