@@ -39,13 +39,14 @@ if not shutil.which("ffmpeg"):
                 (Path().cwd() / "ffmpeg").write_bytes(f.extractfile(m).read())
                 break
     tar.unlink()
-    import site
-    from importlib import reload
-    reload(site)
     # make executable
     import stat
     st = os.stat('ffmpeg')
     os.chmod('ffmpeg', st.st_mode | stat.S_IEXEC)
+    # reload PATH
+    import site
+    from importlib import reload
+    reload(site)
 
 
 print("> ffmpeg binary:", shutil.which("ffmpeg"))
