@@ -39,6 +39,9 @@ if not shutil.which("ffmpeg"):
                 (Path().cwd() / "ffmpeg").write_bytes(f.extractfile(m).read())
                 break
     tar.unlink()
+    import site
+    from importlib import reload
+    reload(site)
 
 print("> ffmpeg binary:", shutil.which("ffmpeg"))
 random.seed(time.time())
