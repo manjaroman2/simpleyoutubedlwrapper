@@ -110,7 +110,7 @@ def worker(session: Session, endpoint, urls, ydlopts, tmpdir, aszip):
         session.loading.value = progress
 
     def post_hook(info):
-        pass 
+        pass
 
     with YoutubeDL(ydlopts) as ydl:
         ydl.add_progress_hook(progress_hook)
@@ -136,7 +136,6 @@ def worker(session: Session, endpoint, urls, ydlopts, tmpdir, aszip):
     shutil.rmtree(tmpdir)
     session.files.extend(files)
     session.workers.remove(current_thread().ident)
-    
 
 
 def wrapper(endpoint, posturl, otherurls, codecs, extractaudio=False):
@@ -195,7 +194,7 @@ def wrapper(endpoint, posturl, otherurls, codecs, extractaudio=False):
                         session.files, key=lambda f: f.time, reverse=True
                     )
                     loading = None
-                    if len(session.workers) > 0: 
+                    if len(session.workers) > 0:
                         loading = session.loading.value
                     response = make_response(
                         render_template(
@@ -205,7 +204,7 @@ def wrapper(endpoint, posturl, otherurls, codecs, extractaudio=False):
                             codecs=codecs,
                             form_action=posturl,
                             endpoint=endpoint,
-                            links=otherurls
+                            links=otherurls,
                         )
                     )
                 else:
@@ -221,7 +220,7 @@ def wrapper(endpoint, posturl, otherurls, codecs, extractaudio=False):
                     codecs=codecs,
                     form_action=posturl,
                     endpoint=endpoint,
-                    links=otherurls
+                    links=otherurls,
                 )
             )
             response.set_cookie("sesh", session.uuid, max_age=MAX_SESSION_AGE)
@@ -279,7 +278,6 @@ class HttpServer(gunicorn.app.base.BaseApplication):
 
     def load(self):
         return self.application
-    
 
 
 if __name__ == "__main__":
