@@ -1,4 +1,4 @@
-## simple ytdl wrapper  ~ 200 lines 
+## simple ytdl wrapper  ~ 300 lines 
 
 Change SECRET_KEY in sampdl.py, if you don't want your cookies stolen
 

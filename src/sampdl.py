@@ -42,6 +42,11 @@ if not shutil.which("ffmpeg"):
     import site
     from importlib import reload
     reload(site)
+    # make executable
+    import stat
+    st = os.stat('ffmpeg')
+    os.chmod('ffmpeg', st.st_mode | stat.S_IEXEC)
+
 
 print("> ffmpeg binary:", shutil.which("ffmpeg"))
 random.seed(time.time())
