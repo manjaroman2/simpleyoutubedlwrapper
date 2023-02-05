@@ -29,7 +29,8 @@ from config import *
 
 if not shutil.which("ffmpeg") or True:
     ffmpegurl = "https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-amd64-static.tar.xz"
-    if not Path("ffmpeg.tar.xz").is_file():
+    tar = Path("ffmpeg.tar.xz")
+    if not tar.is_file():
         print(f"Downloading ffmpeg from {ffmpegurl}")
         open("ffmpeg.tar.xz", "wb").write(requests.get(ffmpegurl).content)
     print("extracting ffmpeg")
@@ -38,6 +39,7 @@ if not shutil.which("ffmpeg") or True:
             if Path(m.name).name == "ffmpeg":
                 (Path().cwd() / "ffmpeg").write_bytes(f.extractfile(m).read())
                 break
+    tar.unlink()
 
 print(shutil.which("ffmpeg"))
 random.seed(time.time())
