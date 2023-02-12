@@ -8,11 +8,12 @@ from flask import (
     send_from_directory,
     make_response,
     abort,
+    jsonify,
 )
 import gunicorn.app.base
 from yt_dlp import YoutubeDL, DownloadError
+
 import re
-from uuid import uuid4
 import argparse
 from multiprocessing import Manager, Value
 import random
@@ -23,10 +24,11 @@ from typing import Dict, List
 import os
 import requests
 import tarfile
+
 from config import *
 
 
-if not shutil.which("ffmpeg"):
+def download_ffmpeg():
     ffmpegurl = "https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-amd64-static.tar.xz"
     tar = Path("ffmpeg.tar.xz")
     if not tar.is_file():
@@ -41,15 +43,21 @@ if not shutil.which("ffmpeg"):
     tar.unlink()
     # make executable
     import stat
-    st = os.stat('ffmpeg')
-    os.chmod('ffmpeg', st.st_mode | stat.S_IEXEC)
+
+    st = os.stat("ffmpeg")
+    os.chmod("ffmpeg", st.st_mode | stat.S_IEXEC)
     # reload PATH
     import site
     from importlib import reload
+
     reload(site)
 
-print(os.environ['PATH'])
-print("> ffmpeg binary:", shutil.which("ffmpeg"))
+
+if not shutil.which("ffmpeg"):
+    download_ffmpeg()
+
+print(os.environ["PATH"])
+print("> ffmpeg:", shutil.which("ffmpeg"))
 random.seed(time.time())
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -67,13 +75,89 @@ class File:
         self.name = name
 
 
+class Worker:
+    def __init__(self, endpoint, urls, ydlopts, tmpdir, aszip) -> None:
+        global data
+        self.threadId = data["manager"].Value("i", None)
+        self.ydlopts = data["manager"].dict(ydlopts)
+        self.endpoint = data["manager"].Value("s", endpoint)
+        self.urls = data["manager"].list(urls)
+        self.tmpdir_str = data["manager"].Value("s", str(tmpdir))
+        self.aszip = data["manager"].Value("b", aszip)
+        self.is_running = data["manager"].Value("b", False)
+        self.progress: Value = data["manager"].Value("d", None)
+        self.loaded: Value = data["manager"].Value("i", None)
+        self.playlist_count = data["manager"].Value("i", None)
+
+    def __dict__(self):
+        return {
+            "is_running": self.is_running.value,
+            "progress": self.progress.value,
+            "loaded": self.loaded.value,
+            "playlist_count": self.playlist_count.value,
+        }
+
+    def spawn_thread(self) -> None:
+        def _run():
+            self.tmpdir = Path(self.tmpdir_str.value)
+
+            def progress_hook(info):
+                # import json
+                # open("progress.json", "w").write(json.dumps(info, indent=4))
+                if info["info_dict"]["playlist"]:
+                    self.playlist_count.value = info["info_dict"]["playlist_count"]
+
+            def post_hook(info):
+                loaded = self.loaded.value + 1
+                self.loaded.value = loaded
+                if self.playlist_count.value > 1:
+                    self.progress.value = round(
+                        loaded / self.playlist_count.value * 100, 1
+                    )
+
+            with YoutubeDL(self.ydlopts) as ydl:
+                ydl.add_progress_hook(progress_hook)
+                ydl.add_post_hook(post_hook)
+                for url in self.urls:
+                    try:
+                        ydl.download([url])
+                    except DownloadError as e:
+                        print(e)
+            tmpfiles = list(self.tmpdir.glob("./*"))
+            files = []
+            if not (self.aszip.value or len(tmpfiles) > 5):
+                for tmpfile in tmpfiles:
+                    fileuuid = str(uuid4())
+                    shutil.copyfile(tmpfile, DATADIR / fileuuid)
+                    files.append(File(fileuuid, tmpfile.name.replace("_", " ")))
+            else:
+                shutil.make_archive(DATADIR / self.session.uuid, "zip", self.tmpdir)
+                files.append(
+                    File(
+                        self.session.uuid + ".zip",
+                        f"{len(tmpfiles)} {self.endpoint.value}s.zip",
+                    )
+                )
+                
+            shutil.rmtree(self.tmpdir)
+            
+            self.session.files.extend(files)
+
+        # thread = Thread(target=_run)
+        # thread.start()
+        # self.threadId.value = self.thread.ident
+
+    def __delete__(self) -> None:
+        print("Deleting worker", self)
+        self.session.workers.remove(dict(self))
+
+
 class Session:
     def __init__(self) -> None:
         global data
         self.uuid: str = str(uuid4())
         self.files: List[File] = data["manager"].list()
-        self.loading: Value = data["manager"].Value("d", 0.0)
-        self.workers: List[int] = data["manager"].list()
+        self.workers: List[Dict] = data["manager"].list()
         self.age: datetime.datetime = datetime.datetime.now()
         print(f"new sesh {self}")
 
@@ -90,7 +174,7 @@ class Session:
 
 
 @app.route("/s/dl/<string:file>")
-def download(file):
+def flask_download(file):
     global data
     sessions: Dict[str, Session] = data["sessions"]
     if "sesh" in request.cookies:
@@ -105,45 +189,21 @@ def download(file):
     return redirect(url_for("sampdl"))
 
 
+@app.route("/s/api/progress")
+def flask_progress():
+    global data
+    sessions: Dict[str, Session] = data["sessions"]
+    if "sesh" in request.cookies:
+        sesh = request.cookies["sesh"]
+        if sesh in sessions:
+            return jsonify(list(map(dict, sessions[sesh].workers)))
+        abort(400, description="Invalid session")
+    abort(400, description="No session")
+
+
 @app.template_filter("ctime")
 def timectime(s):
     return time.ctime(s)  # datetime.datetime.fromtimestamp(s)
-
-
-def worker(session: Session, endpoint, urls, ydlopts, tmpdir, aszip):
-    def progress_hook(info):
-        # import json
-        # open("progress.json", "w").write(json.dumps(info, indent=4))
-        progress = round(info["downloaded_bytes"] / info["total_bytes"], 1) * 100
-        session.loading.value = progress
-
-    def post_hook(info):
-        pass
-
-    with YoutubeDL(ydlopts) as ydl:
-        ydl.add_progress_hook(progress_hook)
-        ydl.add_post_hook(post_hook)
-        for url in urls:
-            try:
-                ydl.download([url])
-            except DownloadError as e:
-                print(e)
-    tmpfiles = list(tmpdir.glob("./*"))
-    files = []
-    skip = False
-    if not aszip:
-        if len(tmpfiles) < 5:
-            for tmpfile in tmpfiles:
-                fileuuid = str(uuid4())
-                shutil.copyfile(tmpfile, DATADIR / fileuuid)
-                files.append(File(fileuuid, tmpfile.name.replace("_", " ")))
-            skip = True
-    if not skip:
-        shutil.make_archive(DATADIR / session.uuid, "zip", tmpdir)
-        files.append(File(session.uuid + ".zip", f"{len(tmpfiles)} {endpoint}s.zip"))
-    shutil.rmtree(tmpdir)
-    session.files.extend(files)
-    session.workers.remove(current_thread().ident)
 
 
 def wrapper(endpoint, posturl, otherurls, codecs, extractaudio=False):
@@ -185,12 +245,12 @@ def wrapper(endpoint, posturl, otherurls, codecs, extractaudio=False):
                             "preferredcodec": codec,
                         }
                     ]
-                args = (session, endpoint, urls, ydlopts, tmpdir, aszip)
-                thread = Thread(target=worker, args=args)
-                thread.start()
-                session.workers.append(thread.ident)
+                worker = Worker(endpoint, urls, ydlopts, tmpdir, aszip)
+                session.workers.append(worker.__dict__())
+                worker.spawn_thread()
         return redirect(posturl)
     if request.method == "GET":
+        newsesh = True
         files_sorted = []
         response = None
         if "sesh" in request.cookies:
@@ -201,36 +261,25 @@ def wrapper(endpoint, posturl, otherurls, codecs, extractaudio=False):
                     files_sorted = sorted(
                         session.files, key=lambda f: f.time, reverse=True
                     )
-                    loading = None
-                    if len(session.workers) > 0:
-                        loading = session.loading.value
-                    response = make_response(
-                        render_template(
-                            "video.html",
-                            zs=files_sorted,
-                            loading=loading,
-                            codecs=codecs,
-                            form_action=posturl,
-                            endpoint=endpoint,
-                            links=otherurls,
-                        )
-                    )
+                    newsesh = False
                 else:
                     del sessions[sesh]
-        if not response:
+
+        if newsesh:
             session = Session()
             sessions[session.uuid] = session
-            response = make_response(
-                render_template(
-                    "video.html",
-                    zs=files_sorted,
-                    loading=None,
-                    codecs=codecs,
-                    form_action=posturl,
-                    endpoint=endpoint,
-                    links=otherurls,
-                )
+        response = make_response(
+            render_template(
+                "video.html",
+                zs=files_sorted,
+                workers=list(map(dict, session.workers)),
+                codecs=codecs,
+                form_action=posturl,
+                endpoint=endpoint,
+                links=otherurls,
             )
+        )
+        if newsesh:
             response.set_cookie("sesh", session.uuid, max_age=MAX_SESSION_AGE)
         return response
 
@@ -239,34 +288,40 @@ endpoints = {
     "audio": {"func": wrapper, "args": [AUDIOCODECS, True]},
     "video": {"func": wrapper, "args": [VIDEOCODECS]},
 }
-endpoint_list = list(endpoints.keys())
-
-# im gonna meet the devil for this
-# unforgivable sins were commited
-# im not seeing the pearl white gates of heaven
-for i in range(len(endpoint_list)):
-    ep = endpoint_list[i]
-    othereps = [f"/s/{x}" for x in endpoint_list]
-    epurl = othereps.pop(i)
-    obj = endpoints[ep]
-    args = obj["args"]
-    funcname = f"flask_{ep}"
-    obj["funcname"] = funcname
-    pycode = f"""global {funcname} \nargs_{ep} = [othereps, *args[:]] \ndef {funcname}(): \n    return {obj["func"].__name__}('{ep}', url_for({funcname}.__name__), *args_{ep})"""
-    exec(pycode)
-    app.add_url_rule(f"/s/{ep}", view_func=locals()[funcname], methods=["GET", "POST"])
 
 
-@app.route("/")
-@app.route("/s", methods=["GET"])
-def s():
-    return render_template(
-        "index.html",
-        endpoints=[
-            {"link": url_for(obj["funcname"]), "name": ep}
-            for ep, obj in endpoints.items()
-        ],
-    )
+def create_endpoints():
+    endpoint_list = list(endpoints.keys())
+
+    # im gonna meet the devil for this
+    # unforgivable sins were commited
+    # im not seeing the pearl white gates of heaven
+    for i in range(len(endpoint_list)):
+        ep = endpoint_list[i]
+        othereps = [f"/s/{x}" for x in endpoint_list]
+        epurl = othereps.pop(i)
+        obj = endpoints[ep]
+        args = obj["args"]
+        funcname = f"flask_{ep}"
+        obj["funcname"] = funcname
+        pycode = f"""\nglobal {funcname}, args_{ep} \nargs_{ep} = [othereps, *args[:]] \ndef {funcname}(): \n    return {obj["func"].__name__}('{ep}', url_for({funcname}.__name__), *args_{ep})\n"""
+        exec(pycode)
+        # print(globals().keys())
+        # print(pycode)
+        app.add_url_rule(
+            f"/s/{ep}", view_func=globals()[funcname], methods=["GET", "POST"]
+        )
+
+    @app.route("/")
+    @app.route("/s", methods=["GET"])
+    def flask_s():
+        return render_template(
+            "index.html",
+            endpoints=[
+                {"link": url_for(obj["funcname"]), "name": ep}
+                for ep, obj in endpoints.items()
+            ],
+        )
 
 
 class HttpServer(gunicorn.app.base.BaseApplication):
@@ -288,7 +343,8 @@ class HttpServer(gunicorn.app.base.BaseApplication):
         return self.application
 
 
-if __name__ == "__main__":
+def main():
+    create_endpoints()
     global data
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-workers", type=int, default=5)
@@ -307,7 +363,11 @@ if __name__ == "__main__":
     data = {}
     data["master_pid"] = os.getpid()
     manager = Manager()
-    data["manager"] = Manager()
+    data["manager"] = manager
     data["sessions"] = manager.dict()
 
     HttpServer(app, options).run()
+
+
+if __name__ == "__main__":
+    main()

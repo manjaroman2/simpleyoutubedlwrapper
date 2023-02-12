@@ -22,7 +22,8 @@
             display: -webkit-flex;
             padding: 3px;
         }
-        div#vbar > * {
+
+        div#vbar>* {
             padding-left: 10vw;
         }
 
@@ -56,8 +57,12 @@
             padding: 10px;
         }
 
-        td, td > * {
+        td>* {
             font-size: medium;
+        }
+
+        td {
+            padding-left: 20px;
         }
     </style>
     <div id="vbar">
@@ -80,10 +85,26 @@
         </form>
     </div>
     <table>
-        {% if loading is not none %}
+        {% for worker in workers %}
+        {% if worker.is_running %}
+
         <tr>
             <td>
-                <p>{{ loading }} %</p>
+                <p> {{ worker.time | ctime }} </p>
+            </td>
+            <td>
+                <a href="{{worker.href}}">{{ worker.name }}</a>
+            </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+        {% if progress is not none and fileprogress is not none %}
+        <tr>
+            <td>
+                <p id="{{fileprogress}}">{{ fileprogress }}</p>
+            </td>
+            <td>
+                <p id="{{progress}}">{{ progress }}%</p>
             </td>
 
         </tr>
@@ -91,11 +112,44 @@
         {% for z in zs %}
         <tr>
             <td>
-                {{ z.time | ctime }}<a href="{{z.href}}">{{ z.name }}</a>
+                <p> {{ z.time | ctime }} </p>
+            </td>
+            <td>
+                <a href="{{z.href}}">{{ z.name }}</a>
             </td>
         </tr>
         {% endfor %}
     </table>
+    <script>
+        window.onload = () => {
+            setInterval(() => {
+                updateProgress();
+            }, 3000);
+        }
+        function updateProgress() {
+            console.log("updateProgress");
+            const xhr = new XMLHttpRequest();
+            xhr.open("GET", "/s/api/progress");
+            xhr.send();
+            xhr.onload = () => {
+                const data = JSON.parse(xhr.responseText);
+                console.log(data);
+                if (data["playlist_count"] === undefined) {
+                    return;
+                }
+                const progress = document.querySelector("p#progress");
+                const fileprogress = document.querySelector("p#fileprogress");
+                if (data.progress !== undefined) {
+                    progress.innerText = data.progress + "%";
+                }
+                if (data.fileprogress !== undefined) {
+                    fileprogress.innerText = data.fileprogress;
+                }
+            }
+        }
+
+
+    </script>
 </body>
 
 </html>
